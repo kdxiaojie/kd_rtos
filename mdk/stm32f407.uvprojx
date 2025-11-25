@@ -648,14 +648,24 @@
           <GroupName>kd_rtos</GroupName>
           <Files>
             <File>
-              <FileName>swtich.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\kd_rtos\swtich.c</FilePath>
-            </File>
-            <File>
               <FileName>os_cpu.s</FileName>
               <FileType>2</FileType>
               <FilePath>..\kd_rtos\os_cpu.s</FilePath>
+            </File>
+            <File>
+              <FileName>list.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\kd_rtos\list.c</FilePath>
+            </File>
+            <File>
+              <FileName>task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\kd_rtos\task.c</FilePath>
+            </File>
+            <File>
+              <FileName>scheduler.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\kd_rtos\scheduler.c</FilePath>
             </File>
           </Files>
         </Group>
