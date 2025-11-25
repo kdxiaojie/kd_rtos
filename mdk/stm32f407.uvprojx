@@ -190,7 +190,7 @@
             <hadIRAM2>1</hadIRAM2>
             <hadIROM2>0</hadIROM2>
             <StupSel>8</StupSel>
-            <useUlib>0</useUlib>
+            <useUlib>1</useUlib>
             <EndSel>0</EndSel>
             <uLtcg>0</uLtcg>
             <nSecure>0</nSecure>
@@ -398,6 +398,16 @@
               <FileName>cpu_tick.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\driver\cpu_tick.c</FilePath>
+            </File>
+            <File>
+              <FileName>led.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\driver\led.c</FilePath>
+            </File>
+            <File>
+              <FileName>usart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\driver\usart.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -641,6 +651,11 @@
               <FileName>swtich.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\kd_rtos\swtich.c</FilePath>
+            </File>
+            <File>
+              <FileName>os_cpu.s</FileName>
+              <FileType>2</FileType>
+              <FilePath>..\kd_rtos\os_cpu.s</FilePath>
             </File>
           </Files>
         </Group>

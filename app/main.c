@@ -1,48 +1,41 @@
 #include <stdint.h>
+#include <stdio.h>
 #include "switch.h"
 #include "stm32f4xx.h"
-#include "switch.h"
 #include "cpu_tick.h"
+#include "usart.h"
+#include "led.h"
 
-void LED_Init(void)
-{
-    GPIO_InitTypeDef GPIO_InitStructure;
+// 声明外部函数，方便调用
+extern void os_start(void);
+extern task_tcb *current_tcb;
 
-    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
+// 定义任务句柄
+task_tcb* task1;
+task_tcb* task2;
 
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
-    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
-    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(GPIOB, &GPIO_InitStructure);
-
-    GPIO_SetBits(GPIOB, GPIO_Pin_0);
-}
-
-void led_on(void)
-{
-	GPIO_ResetBits(GPIOB, GPIO_Pin_0);
-}
-
-void led_off(void)
-{
-	GPIO_SetBits(GPIOB, GPIO_Pin_0);
-}
 
 int main(void)
 {
-	LED_Init();
-    cpu_tick_init();
-	task_tcb* task1 = task_create(led_on,1024,"led_on");
-	task_tcb* task2 = task_create(led_off,1024,"led_off");
+    // 1. 硬件初始化
+    usart_init();
+    LED_Init();
+    cpu_tick_init(); // 极其重要：初始化时钟，否则 delay 函数会卡死
 
-	while(1)
-	{
-		((void(*)(void))task1->task_function)();
-        cpu_delay_ms(1000);
+    // 2. 创建任务
+    task1 = task_create(led_on, 1024, "led_on");
+    task2 = task_create(led_off, 1024, "led_off");
 
-        ((void(*)(void))task2->task_function)();
-        cpu_delay_ms(1000);
-	}
+    // 3. 调度器启动前的准备
+    // 告诉系统，第一个运行的是 task1
+    current_tcb = task1;
+
+    // 4. 启动内核！
+    // CPU 将跳入 led_on 函数，永远不再返回这里
+    os_start();
+
+    while(1)
+    {
+        // 如果程序跑到了这里，说明出大问题了（os_start 失败）
+    }
 }
