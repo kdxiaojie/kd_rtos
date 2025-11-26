@@ -7,6 +7,8 @@
 #include "led.h"
 #include "key.h"
 #include "scheduler.h"
+#include "event.h"
+#include "sem.h"
 
 // 声明外部函数
 extern void os_start(void);
@@ -18,23 +20,24 @@ task_tcb* task_high;
 task_tcb* task_low;
 task_tcb* task_idle;
 
+// 定义信号量
+sem_t led_sem;
+
 // -------------------------------------------------------------------
 // 任务 1 (High Priority): 每 1秒 跑一次
 // 优先级设为 2
 // -------------------------------------------------------------------
 void task_high_func(void)
 {
+    printf("task1:off");
+    sem_take(&led_sem);
+    printf("task1:on");
     while(1)
     {
-        GPIO_ResetBits(GPIOB, GPIO_Pin_0); // 亮灯
-        printf("[HIGH] Task Running! (Prio 2)\n");
-
-        // 模拟干活
-        os_delay(300);
-
-        GPIO_SetBits(GPIOB, GPIO_Pin_0);   // 灭灯
-
-        os_delay(3000);
+        GPIO_ResetBits(GPIOB,GPIO_Pin_0);
+        os_delay(400);
+        GPIO_SetBits(GPIOB,GPIO_Pin_0);
+        os_delay(400);
     }
 }
 
@@ -43,10 +46,15 @@ void task_high_func(void)
 // -------------------------------------------------------------------
 void task_low_func(void)
 {
+    printf("task2:off");
+    sem_take(&led_sem);
+    printf("task2:on");
     while(1)
     {
-        printf("[LOW ] Task Running! (Prio 1)\n");
-        os_delay(1000);
+        GPIO_ResetBits(GPIOB,GPIO_Pin_1);
+        os_delay(400);
+        GPIO_SetBits(GPIOB,GPIO_Pin_1);
+        os_delay(400);
     }
 }
 
@@ -62,60 +70,21 @@ void task_key_func(void)
     while(1)
     {
         // ============================================================
-        // KEY1 (PA0): 加锁测试
+        // KEY1 (PA0): 释放信号量测试
         // ============================================================
         if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0)
         {
-            // !!! 修正点 1：智能消抖 !!!
             // 如果已经锁了，绝对不能调 os_delay，否则回不来！
             if(OSSchedLockNesting == 0)
-                os_delay(20);      // 没锁：用阻塞延时，让出CPU
+                os_delay(50);      // 没锁：用阻塞延时，让出CPU
             else
-                cpu_delay_ms(20);  // 锁了：只能用死延时霸占CPU
+                cpu_delay_ms(50);  // 锁了：只能用死延时霸占CPU
 
             // 确认按下
             if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0)
             {
-                printf("\n>>> KEY1: Lock++\n");
-                OSSchedLock(); // 加锁
-                printf("Lock Count: %d\n", OSSchedLockNesting);
-
-                // 等待松开 (死等)
-                while(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0) 
-                {
-                    cpu_delay_ms(10); 
-                }
-            }
-        }
-
-        // ============================================================
-        // KEY2 (PC4): 解锁测试
-        // ============================================================
-        if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0)
-        {
-            // 解锁前肯定是锁着的（或者没锁），为了安全，直接用死延时消抖
-            // 因为这里 os_delay 风险太高
-            cpu_delay_ms(20); 
-            
-            if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0)
-            {
-                // 只有锁大于0才解，防止减到负数溢出
-                if (OSSchedLockNesting > 0)
-                {
-                    printf("\n<<< KEY2: Unlock--\n");
-                    OSSchedUnlock(); 
-                    printf("Lock Count: %d\n", OSSchedLockNesting);
-                }
-                else
-                {
-                    printf("Ignored. Not Locked.\n");
-                }
-
-                // 等待松开
-                while(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0) 
-                {
-                    cpu_delay_ms(10);
-                }
+                printf("give sem\n");
+                sem_give(&led_sem);
             }
         }
 
@@ -124,15 +93,11 @@ void task_key_func(void)
         // ============================================================
         if (OSSchedLockNesting > 0)
         {
-            // ！！！修正点 2：锁定期间必须勤快检查！！！
-            // 如果用 100ms 甚至更久，你会感觉按键“按不动”（因为CPU在睡觉）
-            // 建议 10ms - 20ms
-            cpu_delay_ms(10); 
+            cpu_delay_ms(10);
         }
         else
         {
-            // 没锁的时候，正常睡觉，把 CPU 让给别人
-            os_delay(50); 
+            os_delay(50);
         }
     }
 }
@@ -163,12 +128,13 @@ int main(void)
     usart_init();
     LED_Init();
     KEY_Init();
+    sem_init(&led_sem, 0);
 
     printf("\n=== MH-RTOS Priority Scheduling Test ===\n");
 
     // 2. 创建任务 (注意优先级参数)
     // 参数：函数，栈大小，名字，优先级
-    task_key  = task_create(task_key_func, 1024, "KeyTask", 2);
+    task_key  = task_create(task_key_func, 1024, "KeyTask", 3);
     task_high = task_create(task_high_func, 1024, "High", 2);
     task_low  = task_create(task_low_func,  1024, "Low",  2);
     task_idle = task_create(idle_task_func, 256,  "Idle", 0);

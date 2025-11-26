@@ -672,6 +672,16 @@
               <FileType>1</FileType>
               <FilePath>..\kd_rtos\scheduler.c</FilePath>
             </File>
+            <File>
+              <FileName>event.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\kd_rtos\event.c</FilePath>
+            </File>
+            <File>
+              <FileName>sem.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\kd_rtos\sem.c</FilePath>
+            </File>
           </Files>
         </Group>
       </Groups>
