@@ -5,6 +5,46 @@
 // 全局变量定义
 // ====================================================
 
+//*调度锁嵌套计数器：0=未锁，>0=锁定
+//*volatile 防止编译器优化
+volatile uint8_t OSSchedLockNesting = 0;
+
+// 开启调度锁：禁止任务切换
+void OSSchedLock(void)
+{
+    __disable_irq(); //!关中断是为了保护计数器本身的加减操作是原子的
+
+    if (OSSchedLockNesting < 255) // 防止溢出
+    {
+        OSSchedLockNesting++;
+    }
+
+    __enable_irq();
+}
+
+// 解除调度锁
+void OSSchedUnlock(void)
+{
+    __disable_irq();
+
+    if (OSSchedLockNesting > 0)
+    {
+        OSSchedLockNesting--;
+
+        // !!! 关键点 !!!
+        // 如果减到0了，说明锁完全解开了。
+        // 此时，如果在锁定期间有高优先级任务就绪，或者时间片到了，
+        // 我们应该立刻尝试一次调度，不要等下一个 Tick。
+        if (OSSchedLockNesting == 0)
+        {
+            // 手动触发 PendSV，让调度器看看是不是该换人了
+            SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
+        }
+    }
+
+    __enable_irq();
+}
+
 // 就绪列表数组：ReadyList[0] 放优先级0的任务，ReadyList[31] 放优先级31的任务
 list_t ReadyList[MAX_PRIORITY];
 
@@ -23,8 +63,14 @@ task_tcb *next_tcb = NULL;
 // 标记某优先级有任务
 void bitmap_set(uint32_t prio)
 {
+    //!移位操作尽量用无符号数
+    //!1 << 31 是有符号数的禁区，但在无符号数 (uint32_t) 中
+    //!它只是单纯的 0x80000000，非常安全
     if (prio < MAX_PRIORITY) {
-        PrioBitmap |= (1 << prio);
+        PrioBitmap |= (1u << prio);
+    }
+    else{
+    PrioBitmap |= (1u << (MAX_PRIORITY - 1));
     }
 }
 
@@ -32,7 +78,7 @@ void bitmap_set(uint32_t prio)
 void bitmap_clear(uint32_t prio)
 {
     if (prio < MAX_PRIORITY) {
-        PrioBitmap &= ~(1 << prio);
+        PrioBitmap &= ~(1u << prio);
     }
 }
 

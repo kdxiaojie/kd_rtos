@@ -5,6 +5,7 @@
 
 #define TICKS_PER_MS    (SystemCoreClock / 1000)
 #define TICKS_PER_US    (SystemCoreClock / 1000000)
+extern volatile uint8_t OSSchedLockNesting;
 
 static volatile uint64_t cpu_tick_count;
 static cpu_periodic_callback_t periodic_callback;
@@ -58,4 +59,15 @@ void SysTick_Handler(void)
     cpu_tick_count += TICKS_PER_MS;
     if (periodic_callback)
         periodic_callback();
+
+    if (OSSchedLockNesting == 0)
+    {
+        SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
+    }
+    else
+    {
+        // 如果锁住了，虽然时间片到了，但也只能忍着，不切换。
+        // 系统会继续运行当前任务。
+        // 等任务自己调用 OSSchedUnlock() 减到0时，会在那里补上这次切换。
+    }
 }
