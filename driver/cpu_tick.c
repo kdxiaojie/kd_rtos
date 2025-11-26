@@ -2,6 +2,9 @@
 #include <string.h>
 #include "stm32f4xx.h"
 #include "cpu_tick.h"
+#include "scheduler.h"
+#include "task.h"
+#include "list.h"
 
 #define TICKS_PER_MS    (SystemCoreClock / 1000)
 #define TICKS_PER_US    (SystemCoreClock / 1000000)
@@ -59,6 +62,51 @@ void SysTick_Handler(void)
     cpu_tick_count += TICKS_PER_MS;
     if (periodic_callback)
         periodic_callback();
+
+    // ============================================================
+    // !!! 延时后恢复到就绪链表
+    // ============================================================
+    list_node_t *node = DelayedList.head;
+    list_node_t *next_node;
+
+    while (node != NULL)
+    //*检查有没有任务在阻塞队列
+    {
+        // 备份下一个节点（因为当前节点可能被移走）
+        next_node = node->next;
+
+        // 找到宿主 TCB
+        task_tcb *tcb = (task_tcb *)(node->owner_tcb);
+
+        // 倒计时
+        if (tcb->delay_ticks > 0)
+        {
+            tcb->delay_ticks--;
+        }
+
+        // ---唤醒操作---
+        if (tcb->delay_ticks == 0)
+        {
+            // A. 从阻塞链表里划掉
+            list_remove(&DelayedList, node);
+
+            // B. 重新加回就绪链表
+            list_insert_end(&ReadyList[tcb->task_priority], node);
+
+            // C. 更新位图
+            bitmap_set(tcb->task_priority);
+        }
+        // --------------------------
+
+
+        //!判断链表是否为空！！！！！！！
+        if (DelayedList.head == NULL) break;
+        // 继续检查下一个睡觉的任务
+        node = next_node;
+
+        // 防止死循环 (针对双向循环链表)
+        if (node == DelayedList.head) break;
+    }
 
     if (OSSchedLockNesting == 0)
     {

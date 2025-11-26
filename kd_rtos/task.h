@@ -16,6 +16,8 @@ typedef struct
     list_node_t status_node;
     void *task_function;
     char *task_name;
+    // !!! 新增：延时计数器 (闹钟) !!!
+    uint32_t delay_ticks;
 
 }task_tcb;
 
@@ -24,5 +26,8 @@ void bitmap_set(uint32_t prio);
 
 // 启动调度器
 void start_scheduler(void);
+
+// 延时函数
+void os_delay(uint32_t ticks);
 
 #endif /* __TASK_H__ */

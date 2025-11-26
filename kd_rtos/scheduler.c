@@ -1,9 +1,13 @@
 #include "task.h"
+#include "scheduler.h"
 #include "stm32f4xx.h" // 为了使用 __CLZ
 
 // ====================================================
 // 全局变量定义
 // ====================================================
+
+// !!! 新增：延时列表 !!!
+list_t DelayedList;
 
 //*调度锁嵌套计数器：0=未锁，>0=锁定
 //*volatile 防止编译器优化
@@ -92,6 +96,20 @@ uint32_t get_highest_priority(void)
     
     if (PrioBitmap == 0) return 0; // 没有任务
     return 31 - __CLZ(PrioBitmap);
+}
+
+// !!! 新增：调度器初始化函数 (在 main 里 os_start 之前调用) !!!
+// 用来初始化所有链表，防止野指针
+void os_init(void)
+{
+    int i;
+    // 初始化就绪列表
+    for(i=0; i<MAX_PRIORITY; i++)
+    {
+        list_init(&ReadyList[i]);
+    }
+    // 初始化延时列表
+    list_init(&DelayedList);
 }
 
 // ====================================================
