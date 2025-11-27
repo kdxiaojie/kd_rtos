@@ -24,9 +24,18 @@ typedef struct
     uint32_t counter;
 } sem_t;
 
+// 3. 定义信号量状态信息结构体
+typedef struct
+{
+    uint32_t current_count;  // 当前剩余资源数
+    uint32_t waiting_tasks;  // 当前正在排队等待的任务数量
+} sem_info_t;
+
 // 函数声明
-void sem_init(sem_t *sem, uint32_t init_count);
+sem_t* sem_create(uint32_t init_count);
+void sem_delete(sem_t *sem);
 void sem_take(sem_t *sem); // 获取信号
 void sem_give(sem_t *sem); // 释放信号
+void sem_get_info(sem_t *sem, sem_info_t *info);
 
 #endif

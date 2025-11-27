@@ -21,7 +21,7 @@ task_tcb* task_low;
 task_tcb* task_idle;
 
 // 定义信号量
-sem_t led_sem;
+sem_t *led_sem;
 
 // -------------------------------------------------------------------
 // 任务 1 (High Priority): 每 1秒 跑一次
@@ -29,9 +29,9 @@ sem_t led_sem;
 // -------------------------------------------------------------------
 void task_high_func(void)
 {
-    printf("task1:off");
-    sem_take(&led_sem);
-    printf("task1:on");
+    printf("task1:off\n");
+    sem_take(led_sem);
+    printf("task1:on\n");
     while(1)
     {
         GPIO_ResetBits(GPIOB,GPIO_Pin_0);
@@ -46,9 +46,9 @@ void task_high_func(void)
 // -------------------------------------------------------------------
 void task_low_func(void)
 {
-    printf("task2:off");
-    sem_take(&led_sem);
-    printf("task2:on");
+    printf("task2:off\n");
+    sem_take(led_sem);
+    printf("task2:on\n");
     while(1)
     {
         GPIO_ResetBits(GPIOB,GPIO_Pin_1);
@@ -67,6 +67,8 @@ void task_low_func(void)
 // -------------------------------------------------------------------
 void task_key_func(void)
 {
+    sem_info_t info; // 定义一个临时变量存状态
+
     while(1)
     {
         // ============================================================
@@ -84,7 +86,43 @@ void task_key_func(void)
             if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0)
             {
                 printf("give sem\n");
-                sem_give(&led_sem);
+                sem_give(led_sem);
+            }
+        }
+
+        if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0)
+        {
+            // 如果已经锁了，绝对不能调 os_delay，否则回不来！
+            if(OSSchedLockNesting == 0)
+                os_delay(50);      // 没锁：用阻塞延时，让出CPU
+            else
+                cpu_delay_ms(50);  // 锁了：只能用死延时霸占CPU
+
+            // 确认按下
+            if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0)
+            {
+                printf("delete sem\n");
+                sem_delete(led_sem);
+            }
+        }
+
+        if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_5) == 0)
+        {
+            // 如果已经锁了，绝对不能调 os_delay，否则回不来！
+            if(OSSchedLockNesting == 0)
+                os_delay(50);      // 没锁：用阻塞延时，让出CPU
+            else
+                cpu_delay_ms(50);  // 锁了：只能用死延时霸占CPU
+
+            if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_5) == 0)
+            {
+                printf("\n[Query] Checking Semaphore State...\n");
+                // !!! 调用查询函数 !!!
+                sem_get_info(led_sem, &info);
+                // 打印结果
+                printf("  - Resources Available: %d\n", info.current_count);
+                printf("  - Tasks Waiting:       %d\n", info.waiting_tasks);
+                while(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_5) == 0) cpu_delay_ms(10);
             }
         }
 
@@ -128,7 +166,8 @@ int main(void)
     usart_init();
     LED_Init();
     KEY_Init();
-    sem_init(&led_sem, 0);
+    printf("create sem\n");
+    led_sem = sem_create(0);
 
     printf("\n=== MH-RTOS Priority Scheduling Test ===\n");
 

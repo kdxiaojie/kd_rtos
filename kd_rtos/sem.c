@@ -1,14 +1,68 @@
 #include "stm32f4xx.h"
+#include <stdlib.h>
 #include "event.h"
 #include "scheduler.h"
 
-// 初始化
-void sem_init(sem_t *sem, uint32_t init_count)
+// 动态创建信号量
+sem_t* sem_create(uint32_t init_count)
 {
-    if (sem == NULL) return;
+    // 1. 从堆区申请内存
+    sem_t *sem = (sem_t *)malloc(sizeof(sem_t));
+    
+    // 2. 检查是否申请成功
+    if (sem == NULL)
+    {
+        return NULL; // 内存不足
+    }
+
+    // 3. 初始化成员变量 (和之前的 sem_init 逻辑一样)
     sem->type = EVENT_TYPE_SEM;
     sem->counter = init_count;
-    list_init(&sem->wait_list);
+    list_init(&sem->wait_list); // 初始化等待链表
+
+    // 4. 返回指针
+    return sem;
+}
+
+// 删除信号量
+void sem_delete(sem_t *sem)
+{
+    if (sem == NULL) return;
+
+    // 1. 关中断 (保护链表操作)
+    __disable_irq();
+
+    // 2. [清场行动] 唤醒所有正在等待这个信号量的任务
+    // 只要链表头不为空，就说明还有人在排队
+    while (sem->wait_list.head != NULL)
+    {
+        // 取出第一个倒霉蛋
+        list_node_t *node = sem->wait_list.head;
+        task_tcb *tcb = (task_tcb *)(node->owner_tcb);
+
+        // A. 从信号量的等待列表移除
+        list_remove(&sem->wait_list, node);
+
+        // B. 强制塞回就绪列表 (别让它变成孤魂野鬼)
+        list_insert_end(&ReadyList[tcb->task_priority], node);
+
+        // C. 恢复位图
+        bitmap_set(tcb->task_priority);
+
+        // (进阶做法：这里其实应该设置一个 tcb->error_code = ERR_DELETED)
+        // 但目前简单起见，只是让它恢复运行
+    }
+
+    // 3.安全释放内存
+    free(sem);
+
+    // 4. 触发调度 (可能有高优先级任务被我们强制唤醒了)
+    if (OSSchedLockNesting == 0)
+    {
+        SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
+    }
+
+    __enable_irq();
 }
 
 // ============================================================
@@ -83,9 +137,24 @@ void sem_give(sem_t *sem)
     else
     {
         sem->counter++;
-        // 如果是二值信号量，可以在这里限制：
-        if (sem->counter > 1) sem->counter = 1;
     }
 
+    __enable_irq();
+}
+
+void sem_get_info(sem_t *sem, sem_info_t *info)
+{
+    if (sem == NULL || info == NULL) return;
+
+    // 1. 关中断 (进入临界区，保证数据一致性)
+    __disable_irq();
+
+    // 2. 读取当前计数
+    info->current_count = sem->counter;
+
+    // 3. 读取等待列表的任务数量
+    info->waiting_tasks = sem->wait_list.count;
+
+    // 4. 开中断
     __enable_irq();
 }
