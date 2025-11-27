@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include "list.h"
 
+// 定义通知状态
+#define NOTIFY_NONE     0 // 无通知，也没在等
+#define NOTIFY_PENDING  1 // 有通知了 (信箱有信)
+#define NOTIFY_WAITING  2 // 正在死等通知 (人在睡觉)
+
 //*定义最大优先级 (比如 32，对应一个 uint32_t 的位图)
 #define MAX_PRIORITY  32
 
@@ -19,6 +24,9 @@ typedef struct
     // !!! 新增：延时计数器 (闹钟) !!!
     uint32_t delay_ticks;
 
+    // !!! 新增：任务通知专用字段 !!!
+    uint32_t notify_value;  // 私人信箱 (存数值)
+    uint8_t  notify_state;  // 信箱状态 (有没有信，或者人是否在等)
 }task_tcb;
 
 task_tcb* task_create(void *task_function, uint32_t task_stack_depth, char *task_name,uint32_t task_priority);

@@ -16,8 +16,8 @@ extern task_tcb *current_tcb;
 
 // 定义任务句柄
 task_tcb* task_key;
-task_tcb* task_high;
-task_tcb* task_low;
+task_tcb* task_led1;
+task_tcb* task_led2;
 task_tcb* task_idle;
 
 // 定义信号量
@@ -27,10 +27,11 @@ sem_t *led_sem;
 // 任务 1 (High Priority): 每 1秒 跑一次
 // 优先级设为 2
 // -------------------------------------------------------------------
-void task_high_func(void)
+void task_led1_func(void)
 {
+    uint32_t notify_led1;
     printf("task1:off\n");
-    sem_take(led_sem);
+    notify_led1 = task_wait_notify();
     printf("task1:on\n");
     while(1)
     {
@@ -38,16 +39,18 @@ void task_high_func(void)
         os_delay(400);
         GPIO_SetBits(GPIOB,GPIO_Pin_0);
         os_delay(400);
+        printf("task1 notify value:%d",notify_led1);
     }
 }
 
 // -------------------------------------------------------------------
 // 任务 2 (Low Priority): 优先级设为 1
 // -------------------------------------------------------------------
-void task_low_func(void)
+void task_led2_func(void)
 {
+    uint32_t notify_led2;
     printf("task2:off\n");
-    sem_take(led_sem);
+    notify_led2 = task_wait_notify();
     printf("task2:on\n");
     while(1)
     {
@@ -55,6 +58,7 @@ void task_low_func(void)
         os_delay(400);
         GPIO_SetBits(GPIOB,GPIO_Pin_1);
         os_delay(400);
+        printf("task2 notify value:%d",notify_led2);
     }
 }
 
@@ -67,65 +71,37 @@ void task_low_func(void)
 // -------------------------------------------------------------------
 void task_key_func(void)
 {
-    sem_info_t info; // 定义一个临时变量存状态
+    uint32_t count = 0;
 
     while(1)
     {
-        // ============================================================
-        // KEY1 (PA0): 释放信号量测试
-        // ============================================================
-        if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0)
+        if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0) // 按下
         {
-            // 如果已经锁了，绝对不能调 os_delay，否则回不来！
-            if(OSSchedLockNesting == 0)
-                os_delay(50);      // 没锁：用阻塞延时，让出CPU
-            else
-                cpu_delay_ms(50);  // 锁了：只能用死延时霸占CPU
-
-            // 确认按下
+            os_delay(20);
             if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0)
             {
-                printf("give sem\n");
-                sem_give(led_sem);
+                count++;
+                printf("[Key Task] Sending Notify Value: %d\n", count);
+                // !!! 发送通知给 task_led1 !!!
+                // 直接指定目标 TCB，不需要中间的 sem 变量
+                task_notify(task_led1, count);
+                while(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0) cpu_delay_ms(10);
             }
         }
 
-        if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0)
+        if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0) // 按下
         {
-            // 如果已经锁了，绝对不能调 os_delay，否则回不来！
-            if(OSSchedLockNesting == 0)
-                os_delay(50);      // 没锁：用阻塞延时，让出CPU
-            else
-                cpu_delay_ms(50);  // 锁了：只能用死延时霸占CPU
-
-            // 确认按下
+            os_delay(20);
             if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0)
             {
-                printf("delete sem\n");
-                sem_delete(led_sem);
+                count++;
+                printf("[Key Task] Sending Notify Value: %d\n", count);
+                // !!! 发送通知给 task_led1 !!!
+                // 直接指定目标 TCB，不需要中间的 sem 变量
+                task_notify(task_led2, count);
+                while(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0) cpu_delay_ms(10);
             }
         }
-
-        if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_5) == 0)
-        {
-            // 如果已经锁了，绝对不能调 os_delay，否则回不来！
-            if(OSSchedLockNesting == 0)
-                os_delay(50);      // 没锁：用阻塞延时，让出CPU
-            else
-                cpu_delay_ms(50);  // 锁了：只能用死延时霸占CPU
-
-            if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_5) == 0)
-            {
-                printf("\n[Query] Checking Semaphore State...\n");
-                // !!! 调用查询函数 !!!
-                sem_get_info(led_sem, &info);
-                // 打印结果
-                printf("  - Resources Available: %d\n", info.current_count);
-                printf("  - Tasks Waiting:       %d\n", info.waiting_tasks);
-                while(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_5) == 0) cpu_delay_ms(10);
-            }
-        }
-
         // ============================================================
         // 循环间歇
         // ============================================================
@@ -174,13 +150,13 @@ int main(void)
     // 2. 创建任务 (注意优先级参数)
     // 参数：函数，栈大小，名字，优先级
     task_key  = task_create(task_key_func, 1024, "KeyTask", 3);
-    task_high = task_create(task_high_func, 1024, "High", 2);
-    task_low  = task_create(task_low_func,  1024, "Low",  2);
+    task_led1 = task_create(task_led1_func, 1024, "High", 2);
+    task_led2  = task_create(task_led2_func,  1024, "Low",  2);
     task_idle = task_create(idle_task_func, 256,  "Idle", 0);
 
     // 3. 调度器启动前的准备
     // 初始指向最高优先级任务，让它先跑
-    current_tcb = task_high;
+    current_tcb = task_led1;
 
     // !!! 在这里开启 SysTick !!!
     // !此时所有数据结构都准备好了，中断来了也能处理

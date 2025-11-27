@@ -37,5 +37,8 @@ void sem_delete(sem_t *sem);
 void sem_take(sem_t *sem); // 获取信号
 void sem_give(sem_t *sem); // 释放信号
 void sem_get_info(sem_t *sem, sem_info_t *info);
+uint32_t task_wait_notify(void);
+void task_notify(task_tcb *target_tcb, uint32_t value);
+
 
 #endif
