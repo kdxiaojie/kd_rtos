@@ -20,45 +20,38 @@ task_tcb* task_led1;
 task_tcb* task_led2;
 task_tcb* task_idle;
 
-// 定义信号量
-sem_t *led_sem;
+mailbox_t *mbox_led1;
+mailbox_t *mbox_led2;
 
-// -------------------------------------------------------------------
-// 任务 1 (High Priority): 每 1秒 跑一次
-// 优先级设为 2
-// -------------------------------------------------------------------
 void task_led1_func(void)
 {
-    uint32_t notify_led1;
+    char * task1_context;
     printf("task1:off\n");
-    notify_led1 = task_wait_notify();
+    task1_context = mbox_fetch(mbox_led1);
     printf("task1:on\n");
+    printf("[task1]receive:%s",task1_context);
     while(1)
     {
         GPIO_ResetBits(GPIOB,GPIO_Pin_0);
         os_delay(400);
         GPIO_SetBits(GPIOB,GPIO_Pin_0);
         os_delay(400);
-        printf("task1 notify value:%d",notify_led1);
     }
 }
 
-// -------------------------------------------------------------------
-// 任务 2 (Low Priority): 优先级设为 1
-// -------------------------------------------------------------------
 void task_led2_func(void)
 {
-    uint32_t notify_led2;
+    char * task2_context;
     printf("task2:off\n");
-    notify_led2 = task_wait_notify();
+    task2_context = mbox_fetch(mbox_led2);
     printf("task2:on\n");
+    printf("[task2]receive:%s",task2_context);
     while(1)
     {
         GPIO_ResetBits(GPIOB,GPIO_Pin_1);
         os_delay(400);
         GPIO_SetBits(GPIOB,GPIO_Pin_1);
         os_delay(400);
-        printf("task2 notify value:%d",notify_led2);
     }
 }
 
@@ -71,8 +64,8 @@ void task_led2_func(void)
 // -------------------------------------------------------------------
 void task_key_func(void)
 {
-    uint32_t count = 0;
-
+    char * task1_context = "The first led is working.";
+    char * task2_context = "The second led is working.";
     while(1)
     {
         if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0) // 按下
@@ -80,11 +73,9 @@ void task_key_func(void)
             os_delay(20);
             if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0)
             {
-                count++;
-                printf("[Key Task] Sending Notify Value: %d\n", count);
-                // !!! 发送通知给 task_led1 !!!
-                // 直接指定目标 TCB，不需要中间的 sem 变量
-                task_notify(task_led1, count);
+                printf("key1 press");
+                // !!! 发送邮箱给 task_led1 !!!
+                mbox_post(mbox_led1,task1_context);
                 while(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0) cpu_delay_ms(10);
             }
         }
@@ -94,11 +85,9 @@ void task_key_func(void)
             os_delay(20);
             if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0)
             {
-                count++;
-                printf("[Key Task] Sending Notify Value: %d\n", count);
-                // !!! 发送通知给 task_led1 !!!
-                // 直接指定目标 TCB，不需要中间的 sem 变量
-                task_notify(task_led2, count);
+                printf("key2 press");
+                // !!! 发送邮箱给 task_led2 !!!
+                mbox_post(mbox_led2,task2_context);
                 while(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0) cpu_delay_ms(10);
             }
         }
@@ -142,16 +131,19 @@ int main(void)
     usart_init();
     LED_Init();
     KEY_Init();
-    printf("create sem\n");
-    led_sem = sem_create(0);
 
     printf("\n=== MH-RTOS Priority Scheduling Test ===\n");
+
+    printf("create mbox_led1\n");
+    printf("create mbox_led2\n");
+    mbox_led1 = mbox_create();
+    mbox_led2 = mbox_create();
 
     // 2. 创建任务 (注意优先级参数)
     // 参数：函数，栈大小，名字，优先级
     task_key  = task_create(task_key_func, 1024, "KeyTask", 3);
     task_led1 = task_create(task_led1_func, 1024, "High", 2);
-    task_led2  = task_create(task_led2_func,  1024, "Low",  2);
+    task_led2 = task_create(task_led2_func,  1024, "Low",  2);
     task_idle = task_create(idle_task_func, 256,  "Idle", 0);
 
     // 3. 调度器启动前的准备
