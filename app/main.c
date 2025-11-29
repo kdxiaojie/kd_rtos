@@ -23,13 +23,23 @@ task_tcb* task_idle;
 mailbox_t *mbox_led1;
 mailbox_t *mbox_led2;
 
+// 纯 CPU 空转延时，不依赖中断
+void soft_delay_approx_ms(uint32_t ms)
+{
+    // STM32F407 168MHz 下，简单的估算
+    // 这个数值不需要太精确，主要用于消抖和防死锁
+    volatile uint32_t i, j;
+    for (i = 0; i < ms; i++)
+    {
+        for (j = 0; j < 30000; j++)
+        {
+            __NOP(); // 空指令，防止被编译器优化掉
+        }
+    }
+}
+
 void task_led1_func(void)
 {
-    char * task1_context;
-    printf("task1:off\n");
-    task1_context = mbox_fetch(mbox_led1);
-    printf("task1:on\n");
-    printf("[task1]receive:%s",task1_context);
     while(1)
     {
         GPIO_ResetBits(GPIOB,GPIO_Pin_0);
@@ -41,11 +51,6 @@ void task_led1_func(void)
 
 void task_led2_func(void)
 {
-    char * task2_context;
-    printf("task2:off\n");
-    task2_context = mbox_fetch(mbox_led2);
-    printf("task2:on\n");
-    printf("[task2]receive:%s",task2_context);
     while(1)
     {
         GPIO_ResetBits(GPIOB,GPIO_Pin_1);
@@ -64,8 +69,6 @@ void task_led2_func(void)
 // -------------------------------------------------------------------
 void task_key_func(void)
 {
-    char * task1_context = "The first led is working.";
-    char * task2_context = "The second led is working.";
     while(1)
     {
         if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0) // 按下
@@ -73,9 +76,9 @@ void task_key_func(void)
             os_delay(20);
             if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0)
             {
-                printf("key1 press");
-                // !!! 发送邮箱给 task_led1 !!!
-                mbox_post(mbox_led1,task1_context);
+                // !!! 进入临界区
+                task_enter_critical();
+                printf("critical_nesting : %d",critical_nesting);
                 while(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0) == 0) cpu_delay_ms(10);
             }
         }
@@ -85,21 +88,24 @@ void task_key_func(void)
             os_delay(20);
             if(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0)
             {
-                printf("key2 press");
-                // !!! 发送邮箱给 task_led2 !!!
-                mbox_post(mbox_led2,task2_context);
+                // !!! 退出临界区
+                task_exit_critical();
+                printf("critical_nesting : %d",critical_nesting);
                 while(GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4) == 0) cpu_delay_ms(10);
             }
         }
         // ============================================================
-        // 循环间歇
+        // !循环间歇,不能使用依赖中断的函数，因为进入临界区后的中断都被禁止了
         // ============================================================
-        if (OSSchedLockNesting > 0)
+        if (critical_nesting > 0)
         {
-            cpu_delay_ms(10);
+            // 临界区内：不能用 os_delay (会切不回来)，也不能用 cpu_delay (时钟停了)
+            // 只能用软延时空转
+            soft_delay_approx_ms(50);
         }
         else
         {
+            // 正常状态：交出 CPU
             os_delay(50);
         }
     }

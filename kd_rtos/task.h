@@ -4,6 +4,13 @@
 #include <stdint.h>
 #include "list.h"
 
+// 全局临界区嵌套计数器
+extern volatile uint32_t critical_nesting;
+
+// 临界区管理函数
+void task_enter_critical(void);
+void task_exit_critical(void);
+
 // 定义通知状态
 #define NOTIFY_NONE     0 // 无通知，也没在等
 #define NOTIFY_PENDING  1 // 有通知了 (信箱有信)

@@ -5,11 +5,15 @@
 #include "scheduler.h"
 #include "stm32f4xx.h"
 #include "event.h"
+#include "cpu_tick.h"
 
 
 extern list_t ReadyList[MAX_PRIORITY];
 extern list_t DelayedList;
 extern task_tcb *current_tcb;
+
+// 定义全局临界区嵌套计数器，初始为 0
+volatile uint32_t critical_nesting = 0;
 
 /*----------------------------------------------------------------*/
 /* 宏定义与全局变量                                               */
@@ -131,11 +135,12 @@ void os_delay(uint32_t ticks)
     // !否则任务会把自己挂起，但又切不走，导致系统逻辑崩溃
     if (OSSchedLockNesting > 0)
     {
+        cpu_delay_ms(ticks);
         return;
     }
 
-    // 1. 关中断保护 (涉及链表移位，必须原子操作)
-    __disable_irq();
+    // 1. 进入临界区
+    task_enter_critical();
 
     // 2. 设置闹钟
     current_tcb->delay_ticks = ticks;
@@ -152,8 +157,8 @@ void os_delay(uint32_t ticks)
     // 5. 加入延时列表 (挂起)
     list_insert_end(&DelayedList, &current_tcb->status_node);
 
-    // 6. 开中断
-    __enable_irq();
+    //6. 退出临界区
+    task_exit_critical();
 
     // 7. 触发调度 (我不跑了，快找别人跑)
     SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
@@ -167,7 +172,7 @@ void task_notify(task_tcb *target_tcb, uint32_t value)
 {
     if (target_tcb == NULL) return;
 
-    __disable_irq();
+    task_enter_critical();
 
     // 1. 写入数据 (这里演示最简单的覆盖模式)
     target_tcb->notify_value = value;
@@ -204,7 +209,7 @@ void task_notify(task_tcb *target_tcb, uint32_t value)
         target_tcb->notify_state = NOTIFY_PENDING;
     }
 
-    __enable_irq();
+    task_exit_critical();
 }
 
 // ============================================================
@@ -217,7 +222,7 @@ uint32_t task_wait_notify(void)
 
     if (OSSchedLockNesting > 0) return 0; // 锁住不能等
 
-    __disable_irq();
+    task_enter_critical();
 
     // --- 情况 A: 信箱里已经有信了 ---
     if (current_tcb->notify_state == NOTIFY_PENDING)
@@ -244,19 +249,19 @@ uint32_t task_wait_notify(void)
 
         // 3. 触发调度
         SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
-        __enable_irq(); // 切走前开中断
+        task_exit_critical(); // 切走前开中断
 
         // -----------------------------------------------
         // 任务在这里被切走......
         //直到 os_task_notify 把它加回 ReadyList，它才会回来
         // -----------------------------------------------
         // 4. 醒来后 (肯定是有信了)
-        __disable_irq();
+        task_enter_critical();
         val = current_tcb->notify_value;     // 拿信
         current_tcb->notify_state = NOTIFY_NONE; // 复位
     }
 
-    __enable_irq();
+    task_exit_critical();
     return val;
 }
 
@@ -279,7 +284,7 @@ void mbox_delete(mailbox_t *mbox)
 {
     if (mbox == NULL) return;
 
-    __disable_irq();
+    task_enter_critical();
     // 清场：唤醒所有等待的任务
     while (mbox->wait_list.head != NULL)
     {
@@ -292,7 +297,7 @@ void mbox_delete(mailbox_t *mbox)
     free(mbox);
 
     if (OSSchedLockNesting == 0) SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
-    __enable_irq();
+    task_exit_critical();
 }
 
 // 3. 发送邮件 (Post)
@@ -301,7 +306,7 @@ int mbox_post(mailbox_t *mbox, void *msg)
 {
     if (mbox == NULL) return -1;
 
-    __disable_irq();
+    task_enter_critical();
 
     // A. 存入数据 (覆盖)
     mbox->msg = msg;
@@ -325,7 +330,7 @@ int mbox_post(mailbox_t *mbox, void *msg)
         }
     }
 
-    __enable_irq();
+    task_exit_critical();
     return 0;
 }
 
@@ -338,7 +343,7 @@ void* mbox_fetch(mailbox_t *mbox)
     if (mbox == NULL) return NULL;
     if (OSSchedLockNesting > 0) return NULL; // 锁住不能阻塞
 
-    __disable_irq();
+    task_enter_critical();
 
     // --- 情况A: 没信，睡觉 ---
     // 使用 while 是为了防止“虚假唤醒”或者被唤醒后信又被别人抢了(虽然这里是FIFO)
@@ -356,18 +361,45 @@ void* mbox_fetch(mailbox_t *mbox)
 
         // 3. 调度
         SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
-        __enable_irq();
+        task_exit_critical();
 
         // ... 任务在这里切走 ...
         // ... 等待 mbox_post 唤醒 ...
 
-        __disable_irq();
+        task_enter_critical();
     }
 
     // --- 情况B: 有信了 (或者醒来了) ---
     return_msg = mbox->msg;
     mbox->is_full = 0; // 取走了，信箱变空
 
-    __enable_irq();
+    task_exit_critical();
     return return_msg;
+}
+
+// ============================================================
+// 进入临界区 (Enter Critical)
+// 逻辑：关中断 -> 计数器加 1
+// ============================================================
+void task_enter_critical(void)
+{
+    task_enter_critical(); // 先物理关中断，保证后续操作原子性
+    critical_nesting++;
+}
+
+// ============================================================
+// 退出临界区 (Exit Critical)
+// 逻辑：计数器减 1 -> 如果减到 0 了，才真正开中断
+// ============================================================
+void task_exit_critical(void)
+{
+    if (critical_nesting > 0)
+    {
+        critical_nesting--;
+        // 只有当嵌套层数归零时，说明最外层的保护结束了
+        if (critical_nesting == 0)
+        {
+            task_exit_critical();
+        }
+    }
 }
