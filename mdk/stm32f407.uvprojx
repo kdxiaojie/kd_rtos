@@ -673,14 +673,24 @@
               <FilePath>..\kd_rtos\scheduler.c</FilePath>
             </File>
             <File>
-              <FileName>event.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\kd_rtos\event.c</FilePath>
-            </File>
-            <File>
               <FileName>sem.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\kd_rtos\sem.c</FilePath>
+            </File>
+            <File>
+              <FileName>os_delay.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\kd_rtos\os_delay.c</FilePath>
+            </File>
+            <File>
+              <FileName>notify.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\kd_rtos\notify.c</FilePath>
+            </File>
+            <File>
+              <FileName>mbox.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\kd_rtos\mbox.c</FilePath>
             </File>
           </Files>
         </Group>
